@@ -1,0 +1,180 @@
+do
+    local Players = PC.Players
+    local LP = PC.LP
+    local UIS = PC.UIS
+    local RS = PC.RS
+    local T = PC.T
+    local cfg = PC.cfg
+    local toast = PC.toast
+
+    cfg.knifeRage = cfg.knifeRage or false
+    cfg.knifeRagePin = cfg.knifeRagePin or false
+    cfg.knifeRageDelay = cfg.knifeRageDelay or 0.05
+
+    local voidThread = nil
+    local pinConn = nil
+    local currentTarget = nil
+
+    local function getRoot()
+        local c = LP.Character
+        if c then
+            local hrp = c:FindFirstChild("HumanoidRootPart")
+            local hum = c:FindFirstChildOfClass("Humanoid")
+            if hrp and hum and hum.Health > 0 then return hrp end
+        end
+    end
+
+    local function nearestTarget()
+        local myRoot = getRoot()
+        local best, bestDist = nil, math.huge
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LP then
+                local c = p.Character
+                if c then
+                    local hum = c:FindFirstChildOfClass("Humanoid")
+                    local hrp = c:FindFirstChild("HumanoidRootPart")
+                    if hum and hum.Health > 0 and hrp then
+                        local d = myRoot and (hrp.Position - myRoot.Position).Magnitude or 0
+                        if d < bestDist then
+                            bestDist = d
+                            best = p
+                        end
+                    end
+                end
+            end
+        end
+        return best
+    end
+
+    local function backPin(target)
+        local myRoot = getRoot()
+        if not myRoot then return false end
+        if not target then target = currentTarget or nearestTarget() end
+        if not target then return false end
+        local tc = target.Character
+        if not tc then return false end
+        local thrp = tc:FindFirstChild("HumanoidRootPart")
+        local thead = tc:FindFirstChild("Head")
+        if not thrp then return false end
+        local look = thrp.CFrame.LookVector
+        local pinPos = thrp.Position - (look * 1.35) + Vector3.new(0, 0.4, 0)
+        myRoot.CFrame = CFrame.new(pinPos, thead and thead.Position or thrp.Position)
+        myRoot.Velocity = Vector3.zero
+        myRoot.RotVelocity = Vector3.zero
+        return true
+    end
+
+    local function doVoidSpam()
+        local myRoot = getRoot()
+        if not myRoot then return end
+        local force = cfg.voidForce or 500000
+        local function rand()
+            local m = PC.rng:NextNumber(force * 0.7, force)
+            return PC.rng:NextInteger(0, 1) == 0 and -m or m
+        end
+        myRoot.Velocity = Vector3.new(rand(), PC.rng:NextNumber(force * 0.7, force), rand())
+        myRoot.RotVelocity = Vector3.new(
+            PC.rng:NextNumber(-10000, 10000),
+            PC.rng:NextNumber(-10000, 10000),
+            PC.rng:NextNumber(-10000, 10000)
+        )
+    end
+
+    local function startKnifeRage()
+        if voidThread then return end
+        voidThread = task.spawn(function()
+            while cfg.knifeRage do
+                if cfg.knifeRagePin and currentTarget then
+                    backPin(currentTarget)
+                else
+                    doVoidSpam()
+                end
+                task.wait(cfg.knifeRageDelay)
+            end
+            voidThread = nil
+        end)
+    end
+
+    local function stopKnifeRage()
+        cfg.knifeRage = false
+        cfg.knifeRagePin = false
+        if voidThread then
+            task.cancel(voidThread)
+            voidThread = nil
+        end
+        currentTarget = nil
+    end
+    PC.stopKnifeRage = stopKnifeRage
+
+    if pinConn then pinConn:Disconnect() end
+    pinConn = UIS.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if not cfg.knifeRage then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton2 then
+            if cfg.knifeRagePin then
+                cfg.knifeRagePin = false
+                currentTarget = nil
+                toast("KNIFE RAGE: unpinned", T.warn)
+            else
+                currentTarget = nearestTarget()
+                if currentTarget then
+                    cfg.knifeRagePin = true
+                    backPin(currentTarget)
+                    toast("KNIFE RAGE: pinning " .. currentTarget.Name, T.ok)
+                else
+                    toast("KNIFE RAGE: no target found", T.warn)
+                end
+            end
+        end
+    end)
+
+    local function setKnifeRage(state)
+        cfg.knifeRage = state
+        if state then
+            PC.btnKnifeRage.BackgroundColor3 = T.accent
+            PC.btnKnifeRage.TextColor3 = T.bg
+            PC.btnKnifeRage.Text = "KNIFE RAGE V2: ON"
+            startKnifeRage()
+            toast("Knife Rage V2 ON", T.ok)
+        else
+            PC.btnKnifeRage.BackgroundColor3 = T.panel2
+            PC.btnKnifeRage.TextColor3 = T.text
+            PC.btnKnifeRage.Text = "KNIFE RAGE V2: OFF"
+            stopKnifeRage()
+            toast("Knife Rage V2 OFF", T.warn)
+        end
+    end
+    PC.setKnifeRage = setKnifeRage
+
+    local page = PC.pgRage
+    if not page then
+        warn("[NEXUS] pgRage missing — cannot mount Knife Rage V2")
+        return
+    end
+
+    local anchorY = nil
+    local combo = page:FindFirstChild("combStat", true)
+    if combo then
+        anchorY = combo.Position.Y.Offset + combo.Size.Y.Offset + 6
+    end
+
+    if not anchorY then
+        local maxY = 4
+        for _, c in ipairs(page:GetChildren()) do
+            if c:IsA("GuiObject") and c.Visible then
+                local b = c.Position.Y.Offset + c.Size.Y.Offset
+                if b > maxY then maxY = b end
+            end
+        end
+        anchorY = maxY + 4
+    end
+
+    PC.mkHeader(page, anchorY, "KNIFE RAGE")
+    PC.btnKnifeRage = PC.mkBtn(page, anchorY + 28, 1, 0, "KNIFE RAGE V2: OFF", false)
+    PC.btnKnifeRage.MouseButton1Click:Connect(function()
+        setKnifeRage(not cfg.knifeRage)
+    end)
+
+    PC.knifeRagePin = backPin
+    PC.knifeRageNearest = nearestTarget
+end
